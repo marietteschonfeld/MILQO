@@ -48,8 +48,25 @@ def weighted_min_max(model, weights):
     acc_utopia, cost_utopia = utopia_solution(model)
     # lambda is a protected name...
     l = model.addVar(vtype=grb.GRB.CONTINUOUS, name='l')
-    model.addConstr(weights[0]*(model.getVarByName('accuracy_loss') - 1 + acc_utopia) <= l)
-    model.addConstr(weights[1]*(model.getVarByName('total_cost') - cost_utopia) <= l)
+    model.addConstr(weights[0]*(model.getVarByName('acc_loss_norm') - 1 + acc_utopia) <= l)
+    model.addConstr(weights[1]*(model.getVarByName('cost_norm') - cost_utopia) <= l)
     model.setObjective(l, grb.GRB.MINIMIZE)
+    model.optimize()
+    return model.getVarByName('total_accuracy').x, model.getVarByName('total_cost').x
+
+
+def goal_method(model, goals):
+    d = model.addVars(len(goals), 2, vtype=grb.GRB.CONTINUOUS, name='d')
+    model.addConstr(model.getVarByName('total_accuracy') + d[0, 0] - d[0, 1] == goals[0])
+    model.addConstr(model.getVarByName('total_cost') + d[1, 0] - d[1, 1] == goals[1])
+    model.setObjective(d.sum('*', '*'), grb.GRB.MINIMIZE)
+    model.optimize()
+    return model.getVarByName('total_accuracy').x, model.getVarByName('total_cost').x
+
+
+def bounded_objective(model, lb, ub, objective1, objective2):
+    model.setObjective(model.getVarByName(objective1), grb.GRB.MINIMIZE)
+    model.addConstr(model.getVarByName(objective2) <= ub)
+    model.addConstr(model.getVarByName(objective2) >= lb)
     model.optimize()
     return model.getVarByName('total_accuracy').x, model.getVarByName('total_cost').x

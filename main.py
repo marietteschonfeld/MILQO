@@ -25,9 +25,8 @@ model.update()
 acc_worst = 1
 cost_worst = 35 + 10 + 40
 
-model.update()
-model = normalize_objectives(model, acc_worst, cost_worst)
-print(weighted_min_max(model, [0.95, 0.05]))
+# model = normalize_objectives(model, acc_worst, cost_worst)
+print(bounded_objective(model, 0.93, 1, 'total_cost', 'total_accuracy'))
 
 #
 # vars = model.getVars()
