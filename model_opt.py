@@ -2,6 +2,7 @@ import gurobipy as grb
 import numpy as np
 from math import ceil
 from itertools import chain, combinations
+from functools import reduce
 
 
 def powerset(s):
@@ -10,8 +11,12 @@ def powerset(s):
 
 def model_opt(A, C, goal, bound, predicates, new_equations):
     model = grb.Model(name="MILQO")
-    model.setParam(grb.GRB.Param.OutputFlag, 0)
-    model.setParam(grb.GRB.Param.IntFeasTol, 10**-9)
+    grb.resetParams()
+    # model.setParam(grb.GRB.Param.OutputFlag, 0)
+    # model.setParam(grb.GRB.Param.IntFeasTol, 10**-9)
+    # model.setParam(grb.GRB.Param.FeasibilityTol, 10**-9)
+    # model.setParam(grb.GRB.Param.IntegralityFocus, 1)
+    # model.setParam(grb.GRB.Param.FeasRelaxBigM, 1000
     model.params.NonConvex = 2
 
     # model predicate as (x & y) | (w & z)
@@ -32,13 +37,17 @@ def model_opt(A, C, goal, bound, predicates, new_equations):
         model.addConstrs(X.sum(m, '*') >= B[m] + l*(1-B[m]) for m in range(M))
 
     if new_equations['accuracy']:
-        model.addConstrs(X[m, p] <= ceil(A[flat_predicates[p]][m]) for m in range(M) for p in range(P))
+        for m in range(M):
+            for p in range(P):
+                X[m, p].ub = ceil(A[flat_predicates[p]][m])
 
     Accs = model.addVars(P, vtype=grb.GRB.CONTINUOUS, name='Accs')
     model.addConstrs(Accs[p] - grb.quicksum(A[flat_predicates[p]][m]*X[m, p] for m in range(M)) == 0 for p in range(P))
 
     sub_predicate_acc = model.addVars(len(predicates), lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='sub_predicate_acc')
 
+    terror_list = reduce(lambda a, b: a + [list(range(a[-1][-1]+1, 1+len(b)+a[-1][-1]))],
+                         predicates[1:], [list(range(len(predicates[0])))])
     index = 0
     for sub_predicate in range(len(predicates)):
         temp_temp_accs = [1]
