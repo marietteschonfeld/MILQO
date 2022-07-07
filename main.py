@@ -3,12 +3,13 @@ from order_opt import *
 from MO_optimization import *
 from data_loader import *
 import matplotlib.pyplot as plt
-from tools import generate_queries
+from Query_tools import generate_queries
 import timeit
 
 filename = "model_stats_ap.csv"
 A, C, sel = data_loader(filename)
 
+# # Dummy modelDB
 # A = {'road': [0.9, 0.95, 0, 0, 0, 0],
 #      'person': [0, 0., 0, 0, 0.94, 0.96],
 #      'light': [0, 0., 0, 0, 0.91, 0.95],
@@ -22,50 +23,32 @@ A, C, sel = data_loader(filename)
 # query needs to be in DNF: [[.. & .. &..] | [.. & ..] | [..]]
 # predicates = [['banana', 'cat'], ['mouse', 'carrot']]
 # predicates = [['chair'], ['laptop']]
-predicates = [['umbrella'], ['teddy_bear'], ['person'], ['suitcase', 'baseball_bat', 'dog'], ['laptop', 'traffic_light'], ['wine_glass', 'train'], ['hot_dog'], ['potted_plant']]
-flat_predicates = [item for sublist in predicates for item in sublist]
+query = [['umbrella'], ['teddy_bear'], ['person'], ['suitcase', 'baseball_bat', 'dog'], ['laptop', 'traffic_light'], ['wine_glass', 'train'], ['hot_dog'], ['potted_plant']]
+flat_predicates = [item for sublist in query for item in sublist]
 
 new_eq = {'eq45': True,
           'accuracy': True,
           'eq13': True,
           'eq14': True,
-          'eq16': True}
+          'eq16': False}
 old_eq = {'eq45': False,
           'accuracy': False,
           'eq13': False,
           'eq14': False,
           'eq16': False}
 
-query = generate_queries(7, 1, A)[0]
+query = generate_queries(4, 1, A)[0]
+print(query)
+
 flat_predicates = [item for sublist in query for item in sublist]
 
-model = order_opt(A, C, sel, 'cost', 0.99, query, new_equations=new_eq)
-model.update()
+model = model_opt(A=A, C=C, goal='accuracy', bound=0.99, predicates=query, NF="CNF", new_equations=new_eq)
 new_time = timeit.timeit('model.optimize()', globals=globals(), number=1)
-bound = model.getVarByName('total_accuracy').x
-print('Total accuracy: ', model.getVarByName('total_accuracy').x)
-print('Total cost: ', model.getVarByName('total_cost').x)
+bound = model.model.getVarByName('total_accuracy').x
+print('Total accuracy: ', model.model.getVarByName('total_accuracy').x)
+print('Total cost: ', model.model.getVarByName('total_cost').x)
+print('Time taken: ', new_time)
 
-for m in range(len(A.keys())):
-    for p in range(len(flat_predicates)):
-        var = model.getVarByName('X[{},{}]'.format(m, p))
-        if var.x>0:
-            print(var)
-
-model = order_opt(A, C, sel, 'cost', bound, query, new_equations=old_eq)
-model.update()
-old_time = timeit.timeit('model.optimize()', globals=globals(), number=1)
-bound = model.getVarByName('total_accuracy').x-0.01
-print('Total accuracy: ', model.getVarByName('total_accuracy').x)
-print('Total cost: ', model.getVarByName('total_cost').x)
-
-for m in range(len(A.keys())):
-    for p in range(len(flat_predicates)):
-        var = model.getVarByName('X[{},{}]'.format(m, p))
-        if var.x>0:
-            print(var)
-
-print(new_time, old_time)
 # accuracies = []
 # costs = []
 #

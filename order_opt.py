@@ -1,6 +1,7 @@
 import gurobipy as grb
 from math import ceil
 from itertools import chain, combinations
+from Query_tools import terror_list
 from functools import reduce
 
 
@@ -42,17 +43,16 @@ def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
 
     # Eq 11
     # don't ask questions, it works
-    terror_list = reduce(lambda a, b: a + [list(range(a[-1][-1]+1, 1+len(b)+a[-1][-1]))],
-                         predicates[1:], [list(range(len(predicates[0])))])
+    terrorlist = terror_list(predicates)
     model.addConstrs(G[g, j] >= 1 - len(predicates[g]) +
                      grb.quicksum(O[p, i]
-                                  for p in terror_list[g]
+                                  for p in terrorlist[g]
                                   for i in range(0, j))
                      for g in range(Pg) for j in range(J))
 
     # Eq 12
     model.addConstrs(G[g, j] <= grb.quicksum(O[p, i] for i in range(0, j))
-                     for g in range(Pg) for j in range(J) for p in terror_list[g])
+                     for g in range(Pg) for j in range(J) for p in terrorlist[g])
 
     # Eq 13
     if new_equations['eq13']:
@@ -70,10 +70,10 @@ def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
     if new_equations['eq14']:
         M2 = 1
         Q = model.addVars(Pg, P, J-1, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Q')
-        model.addVars(Q[g, p, j] <= M2 * O[p, j] for g in range(Pg) for p in range(P) for j in range(J-1))
-        model.addVars(Q[g, p, j] >= H[g, j] - M2 * (1 - O[p, j]) for g in range(Pg) for p in range(P) for j in range(J-1))
+        model.addVars(Q[g, p, j] <= M2 * O[p, j] for g in range(Pg) for p in terrorlist[g] for j in range(J-1))
+        model.addVars(Q[g, p, j] >= H[g, j] - M2 * (1 - O[p, j]) for g in range(Pg) for p in terrorlist[g] for j in range(J-1))
         model.addVars(Q[g, p, j] <= H[g, j] for g in range(Pg) for p in range(P) for j in range(J-1))
-        model.addConstrs(H[g, j] == H[g, j-1] - grb.quicksum(Q[g, p, j-1] * (1 - Sel[flat_predicates[p]]) for p in terror_list[g])
+        model.addConstrs(H[g, j] == H[g, j-1] - grb.quicksum(Q[g, p, j-1] * (1 - Sel[flat_predicates[p]]) for p in terrorlist[g])
                          for g in range(Pg) for j in range(1, J))
     else:
         for g in range(Pg):
@@ -81,7 +81,7 @@ def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
                 temp_H = [1]
                 for i in range(0, j):
                     new_Var = model.addVar(vtype=grb.GRB.CONTINUOUS)
-                    model.addConstr(new_Var == temp_H[-1]*(1 - grb.quicksum(O[p, i] - Sel[flat_predicates[p]]*O[p,i] for p in terror_list[g])))
+                    model.addConstr(new_Var == temp_H[-1]*(1 - grb.quicksum(O[p, i] - Sel[flat_predicates[p]]*O[p,i] for p in terrorlist[g])))
                     temp_H.append(new_Var)
                 model.addConstr(H[g, j] == temp_H[-1])
 

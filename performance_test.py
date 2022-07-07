@@ -5,7 +5,7 @@ import timeit
 import matplotlib.pyplot as plt
 import random
 import seaborn as sb
-from tools import generate_queries
+from Query_tools import generate_queries
 
 filename = "model_stats_ap.csv"
 A, C, sel = data_loader(filename)
