@@ -11,8 +11,12 @@ def power_set(s):
 
 def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
     model = grb.Model(name="MILQO")
-    model.setParam(grb.GRB.Param.OutputFlag, 0)
-    model.setParam(grb.GRB.Param.IntFeasTol, 1e-9)
+    grb.resetParams()
+    # model.setParam(grb.GRB.Param.OutputFlag, 0)
+    # model.setParam(grb.GRB.Param.IntFeasTol, 10**-2)
+    model.setParam(grb.GRB.Param.FeasibilityTol, 10**-3)
+    # model.setParam(grb.GRB.Param.IntegralityFocus, 1)
+    # model.setParam(grb.GRB.Param.FeasRelaxBigM, 1000)
     model.params.NonConvex = 2
 
     # model predicate as (x & y) | (w & z)
@@ -26,10 +30,10 @@ def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
     O = model.addVars(P, J, vtype=grb.GRB.BINARY, name='O')
     G = model.addVars(Pg, J, vtype=grb.GRB.BINARY, name='G')
 
-    H = model.addVars(Pg, J, vtype=grb.GRB.CONTINUOUS, name='H')
-    W = model.addVars(Pg, J, vtype=grb.GRB.CONTINUOUS, name='W')
-    Sj = model.addVars(J, vtype=grb.GRB.CONTINUOUS, name='Sj')
-    Sg = model.addVars(Pg, vtype=grb.GRB.CONTINUOUS, name='Sg')
+    H = model.addVars(Pg, J, lb=0, ub=1,  vtype=grb.GRB.CONTINUOUS, name='H')
+    W = model.addVars(Pg, J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='W')
+    Sj = model.addVars(J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Sj')
+    Sg = model.addVars(Pg, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Sg')
 
     # Eq 1
     model.addConstrs(X.sum('*', p) == 1 for p in range(P))
@@ -89,8 +93,8 @@ def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
     for j in range(J):
         temp_selectives = [1]
         for g in range(Pg):
-            temp_selective = model.addVar(vtype=grb.GRB.CONTINUOUS, name='sel_{}'.format(j))
-            temp_temp_selective = model.addVar(vtype=grb.GRB.CONTINUOUS, name='sel_temp_{}'.format(j))
+            temp_selective = model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='sel_{}'.format(j))
+            temp_temp_selective = model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='sel_temp_{}'.format(j))
             model.addConstr(temp_temp_selective == W[g, j]*H[g, j])
             model.addConstr(temp_selective == temp_selectives[-1] * temp_temp_selective)
             temp_selectives.append(temp_selective)
@@ -101,7 +105,7 @@ def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
                      for g in range(Pg))
 
     # Accuracy calculation
-    Accs = model.addVars(P, vtype=grb.GRB.CONTINUOUS, name='Accs')
+    Accs = model.addVars(P, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Accs')
     model.addConstrs(Accs[p] - grb.quicksum(A[flat_predicates[p]][m]*X[m, p] for m in range(M)) == 0 for p in range(P))
 
     sub_predicate_acc = model.addVars(len(predicates), lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='sub_predicate_acc')
@@ -134,12 +138,12 @@ def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
     model.addConstr(accuracy_loss == 1 - total_accuracy)
 
     # cost calculation
-    R = model.addVars(M, J, vtype=grb.GRB.CONTINUOUS, name='R')
+    R = model.addVars(M, J, lb=0, vtype=grb.GRB.CONTINUOUS, name='R')
 
     if new_equations['eq16']:
         M3 = 1
         Y = model.addVars(M, P, J, vtype=grb.GRB.BINARY, name='Y')
-        D = model.addVars(M, P, J, lb=0, vtype=grb.GRB.CONTINUOUS, name='D')
+        D = model.addVars(M, P, J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='D')
         model.addConstrs(Y[m, p, j] <= X[m, p] for m in range(M) for p in range(P) for j in range(J))
         model.addConstrs(Y[m, p, j] <= O[p, j] for m in range(M) for p in range(P) for j in range(J))
         model.addConstrs(Y[m, p, j] >= X[m, p] + O[p, j] - 1 for m in range(M) for p in range(P) for j in range(J))
@@ -154,10 +158,10 @@ def order_opt(A, C, Sel, goal, bound, predicates, new_equations):
                          for j in range(J))
         model.addConstrs(R[m, j] == Sj[j] * temp_cost[m, j] for m in range(M) for j in range(J))
 
-    max_R = model.addVars(M, vtype=grb.GRB.CONTINUOUS, name='max_R')
+    max_R = model.addVars(M, lb=0, ub=sum(C), vtype=grb.GRB.CONTINUOUS, name='max_R')
     model.addConstrs(max_R[m] >= R[m, j] for j in range(J) for m in range(M))
 
-    total_cost = model.addVar(lb=0, vtype=grb.GRB.CONTINUOUS, name='total_cost')
+    total_cost = model.addVar(lb=0, ub=sum(C), vtype=grb.GRB.CONTINUOUS, name='total_cost')
     model.addConstr(total_cost == max_R.sum('*'))
 
     if goal == 'cost':
