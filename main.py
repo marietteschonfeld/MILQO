@@ -1,8 +1,6 @@
-from model_opt import *
-from order_opt import *
-from MO_optimization import *
+from Models.model_opt import *
+from Models.order_opt import *
 from data_loader import *
-import matplotlib.pyplot as plt
 from Query_tools import generate_queries
 import timeit
 
@@ -42,7 +40,7 @@ print(query)
 
 flat_predicates = [item for sublist in query for item in sublist]
 
-model = model_opt(A=A, C=C, goal='accuracy', bound=0.99, predicates=query, NF="CNF", new_equations=new_eq)
+model = order_opt(A=A, C=C, Sel=sel, goal='accuracy', bound=0.99, predicates=query, NF="DNF", new_equations=new_eq)
 new_time = timeit.timeit('model.optimize()', globals=globals(), number=1)
 bound = model.model.getVarByName('total_accuracy').x
 print('Total accuracy: ', model.model.getVarByName('total_accuracy').x)

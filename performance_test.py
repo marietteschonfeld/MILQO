@@ -1,9 +1,7 @@
-from model_opt import *
-from order_opt import *
+from Models.order_opt import *
 from data_loader import *
 import timeit
 import matplotlib.pyplot as plt
-import random
 import seaborn as sb
 from Query_tools import generate_queries
 
