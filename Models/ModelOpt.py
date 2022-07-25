@@ -1,8 +1,8 @@
 import gurobipy as grb
-from Models.model import Model
+from Models.Model import Model
 
 
-class model_opt(Model):
+class ModelOpt(Model):
     def __init__(self, A, C, goal, bound, predicates, NF, new_equations):
         super().__init__(A, C, goal, bound, predicates, NF, new_equations)
         self.extend_model()

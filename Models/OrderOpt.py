@@ -1,11 +1,10 @@
 import gurobipy as grb
-from math import ceil
-from Query_tools import terror_list, powerset
+from Query_tools import terror_list
 from functools import reduce
-from Models.model import Model
+from Models.Model import Model
 
 
-class order_opt(Model):
+class OrderOpt(Model):
     def __init__(self, A, C, Sel, goal, bound, predicates, NF, new_equations):
         super().__init__(A, C, goal, bound, predicates, NF, new_equations)
         self.Sel = Sel
@@ -55,14 +54,14 @@ class order_opt(Model):
         self.model.addConstrs(H[g, 0] == 1 for g in range(Pg))
         if self.new_equations['eq14']:
             M2 = 1
-            Q = self.model.addVars(Pg, self.P, J-1, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Q')
-            self.model.addVars(Q[g, p, j] <= M2 * O[p, j]
-                               for g in range(Pg) for p in terrorlist[g] for j in range(J-1))
-            self.model.addVars(Q[g, p, j] >= H[g, j] - M2 * (1 - O[p, j])
-                               for g in range(Pg) for p in terrorlist[g] for j in range(J-1))
-            self.model.addVars(Q[g, p, j] <= H[g, j]
-                               for g in range(Pg) for p in range(self.P) for j in range(J-1))
-            self.model.addConstrs(H[g, j] == H[g, j-1] - grb.quicksum(Q[g, p, j-1] * (1 - self.Sel[flat_predicates[p]])
+            Q = self.model.addVars(Pg, self.P, J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Q')
+            self.model.addConstrs(Q[g, p, j] <= M2 * O[p, j-1]
+                                  for g in range(Pg) for p in range(self.P) for j in range(1, J))
+            self.model.addConstrs(Q[g, p, j] >= H[g, j-1] - M2 * (1 - O[p, j-1])
+                                  for g in range(Pg) for p in range(self.P) for j in range(1, J))
+            self.model.addConstrs(Q[g, p, j] <= H[g, j-1]
+                                  for g in range(Pg) for p in range(self.P) for j in range(1, J))
+            self.model.addConstrs(H[g, j] == H[g, j-1] - grb.quicksum(Q[g, p, j] * (1 - self.Sel[flat_predicates[p]])
                                                                       for p in terrorlist[g])
                                   for g in range(Pg) for j in range(1, J))
         else:
@@ -101,15 +100,12 @@ class order_opt(Model):
 
         if self.new_equations['eq16']:
             M3 = 1
-            Y = self.model.addVars(self.M, self.P, J, vtype=grb.GRB.BINARY, name='Y')
-            D = self.model.addVars(self.M, self.P, J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='D')
-            self.model.addConstrs(Y[m, p, j] <= self.X[m, p] for m in range(self.M) for p in range(self.P) for j in range(J))
-            self.model.addConstrs(Y[m, p, j] <= O[p, j] for m in range(self.M) for p in range(self.P) for j in range(J))
-            self.model.addConstrs(Y[m, p, j] >= self.X[m, p] + O[p, j] - 1 for m in range(self.M) for p in range(self.P) for j in range(J))
-            self.model.addConstrs(D[m, p, j] <= M3*Y[m, p, j] for m in range(self.M) for p in range(self.P) for j in range(J))
-            self.model.addConstrs(D[m, p, j] >= Sj[j] - M3*(1-Y[m, p, j]) for m in range(self.M) for p in range(self.P) for j in range(J))
-            self.model.addConstrs(D[m, p, j] <= Sj[j] for m in range(self.M) for p in range(self.P) for j in range(J))
-            self.model.addConstrs(R[m, j] == grb.quicksum(D[m, p, j]*self.C[m] for p in range(self.P)) for m in range(self.M) for j in range(J))
+            Y = self.model.addVars(self.M, self.P, J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Y')
+            self.model.addConstrs(Y[m, p, j] <= self.X[m, p] * M3 for m in range(self.M) for p in range(self.P) for j in range(J))
+            self.model.addConstrs(Y[m, p, j] <= O[p, j] * M3 for m in range(self.M) for p in range(self.P) for j in range(J))
+            self.model.addConstrs(Y[m, p, j] >= Sj[j] - M3*(2 - self.X[m, p] - O[p, j]) for m in range(self.M) for p in range(self.P) for j in range(J))
+            self.model.addConstrs(Y[m, p, j] <= Sj[j] for m in range(self.M) for p in range(self.P) for j in range(J))
+            self.model.addConstrs(R[m, j] == grb.quicksum(Y[m, p, j]*self.C[m] for p in range(self.P)) for m in range(self.M) for j in range(J))
         else:
             temp_cost = self.model.addVars(self.M, J, vtype=grb.GRB.CONTINUOUS, name='temp_cost')
             self.model.addConstrs(temp_cost[m, j] == grb.quicksum(self.X[m, p] * O[p, j] * self.C[m] for p in range(self.P))
@@ -122,3 +118,6 @@ class order_opt(Model):
 
         total_cost = self.model.getVarByName('total_cost')
         self.model.addConstr(total_cost == max_R.sum('*'))
+
+
+

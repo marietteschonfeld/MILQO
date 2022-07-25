@@ -1,4 +1,4 @@
-from Models.order_opt import *
+from Models.OrderOpt import *
 from data_loader import *
 import timeit
 import matplotlib.pyplot as plt

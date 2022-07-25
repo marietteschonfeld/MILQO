@@ -14,6 +14,8 @@ class Model:
         self.NF = NF
         self.new_equations = new_equations
         self.model = grb.Model(name="MILQO")
+        self.opt_cost = 0
+        self.opt_accuracy = 0
         self.generate_model()
 
     def generate_model(self):
@@ -91,15 +93,127 @@ class Model:
         total_cost = self.model.addVar(lb=0, vtype=grb.GRB.CONTINUOUS, name='total_cost')
 
         if self.goal == 'cost':
+            self.minmax = 'min'
             self.model.setObjective(total_cost, grb.GRB.MINIMIZE)
             if not self.new_equations['accuracy']:
                 self.model.addConstr(total_accuracy >= self.bound)
         elif self.goal == 'accuracy':
+            self.minmax = 'max'
             self.model.setObjective(total_accuracy, grb.GRB.MAXIMIZE)
             if not self.new_equations['accuracy']:
                 self.model.addConstr(total_cost <= self.bound)
         self.model.update()
 
+    def addConstr(self, constraint_name, type, value):
+        if type == 'leq':
+            self.model.addConstr(self.model.getVarByName(constraint_name) <= value)
+        elif type == 'geq':
+            self.model.addConstr(self.model.getVarByName(constraint_name) >= value)
+        elif type == 'eq':
+            self.model.addConstr(self.model.getVarByName(constraint_name) == value)
+
     def optimize(self):
         self.model.update()
         self.model.optimize()
+        if self.model.Status == 3:
+            print("Solution not found, starting from greedy solution")
+            self.compute_start_solution()
+            self.model.optimize()
+        elif self.model.Status == 2:
+            self.opt_accuracy = self.model.getVarByName('total_accuracy').x
+            self.opt_cost = self.model.getVarByName('total_cost').x
+
+    # compute greedy solution for max accuracy for difficult optimization
+    def compute_start_solution(self):
+        self.model.reset()
+        self.model.params.FeasibilityTol = 1e-8
+        flat_predicates = [item for sublist in self.predicates for item in sublist]
+        for p in range(self.P):
+            max_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            self.X[max_loc, p].Start = 1
+            for m in range(len(self.C)):
+                if m != max_loc:
+                    self.X[m, p].Start = 0
+
+    def compute_greedy_solution(self, objective, minmax):
+        self.model.reset()
+        self.model.params.FeasibilityTol = 1e-8
+        if objective == 'accuracy':
+            if minmax == 'max':
+                self.compute_max_accuracy()
+            elif minmax == 'min':
+                self.compute_min_accuracy()
+            else:
+                "No valid minmax, try again"
+                return
+        elif objective == 'cost':
+            if minmax == 'max':
+                self.compute_max_cost()
+            elif minmax == 'min':
+                self.compute_min_cost()
+            else:
+                "No valid minmax, try again"
+        else:
+            print("no valid objective, try again")
+        self.optimize()
+        self.reset_bounds()
+
+    def reset_bounds(self):
+        for m in range(self.M):
+            for p in range(self.P):
+                self.X[m, p].lb = 0
+                self.X[m, p].ub = 1
+
+    def compute_min_accuracy(self):
+        flat_predicates = [item for sublist in self.predicates for item in sublist]
+        for p in range(self.P):
+            min_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            min_acc = 1
+            for m in range(self.M):
+                temp_acc = self.A[flat_predicates[p]][m]
+                if min_acc > temp_acc > 0:
+                    min_loc = m
+                    min_acc = self.A[flat_predicates[p]][m]
+            self.X[min_loc, p].lb = 1
+            for m in range(self.M):
+                if m != min_loc:
+                    self.X[m, p].ub = 0
+
+    def compute_max_accuracy(self):
+        flat_predicates = [item for sublist in self.predicates for item in sublist]
+        for p in range(self.P):
+            max_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            print(self.X[max_loc, p])
+            self.X[max_loc, p].lb = 1
+            for m in range(self.M):
+                if m != max_loc:
+                    self.X[m, p].ub = 0
+
+    def compute_min_cost(self):
+        flat_predicates = [item for sublist in self.predicates for item in sublist]
+        for p in range(self.P):
+            min_cost = max(self.C)
+            min_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            for m in range(self.M):
+                if self.A[flat_predicates[p]][m] > 0 and self.C[m] < min_cost:
+                    min_cost = self.C[m]
+                    min_loc = m
+            self.X[min_loc, p].lb = 1
+            for m in range(self.M):
+                if m != min_loc:
+                    self.X[m, p].ub = 0
+
+    def compute_max_cost(self):
+        flat_predicates = [item for sublist in self.predicates for item in sublist]
+        for p in range(self.P):
+            max_cost = min(self.C)
+            max_loc = self.A[flat_predicates[p]].index(min(self.A[flat_predicates[p]]))
+            for m in range(self.M):
+                if self.A[flat_predicates[p]][m] > 0 and self.C[m] > max_cost:
+                    max_cost = self.C[m]
+                    max_loc = m
+            self.X[max_loc, p].lb = 1
+            for m in range(self.M):
+                if m != max_loc:
+                    self.X[m, p].ub = 0
+

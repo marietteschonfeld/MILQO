@@ -27,7 +27,9 @@ def worst_solution(model):
 # TODO this normalization needs to be thought about carefully
 def normalize_objectives(model):
     acc_utopia, cost_utopia = utopia_solution(model)
+    print("utopia: ", acc_utopia, cost_utopia)
     acc_worst, cost_worst = worst_solution(model)
+    print("worst: ", acc_worst, cost_worst)
     acc_loss_norm = model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='acc_loss_norm')
     model.addConstr(acc_loss_norm == (model.getVarByName('accuracy_loss')-1+acc_utopia)/(acc_worst-1+acc_utopia))
     cost_norm = model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='cost_norm')
