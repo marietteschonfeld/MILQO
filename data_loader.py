@@ -1,9 +1,10 @@
 import pandas as pd
-
+import random
+import numpy as np
 
 def data_loader(filename):
     df = pd.read_csv(filename)
-    df_sel = pd.read_csv("coco_selectivity.csv")
+    df_sel = pd.read_csv("C:\\Users\\marie\\Documents\\Software\\MILQO\\coco_selectivity.csv")
     df['model_name'] = df['model_name'].str[6:]
     df['model_name'] = df['model_name'].astype(int)
     df['model_name'] = df['model_name'] - 26
@@ -17,8 +18,14 @@ def data_loader(filename):
     A = df.to_dict()
     for key in A.keys():
         A[key] = list(A[key].values())
+    memory = [155*(x-20)**2 + 1000 for x in costs]
+    robustness = A.copy()
+    for p in robustness.keys():
+        for m in range(len(costs)):
+            if A[p][m] > 0:
+                robustness[p][m] = random.randint(1, 100)/500
     df_sel = df_sel.set_index("class")
     df_sel = df_sel.drop("Unnamed: 0", axis=1)
     sel = df_sel.to_dict()
     sel = sel['selectivity']
-    return A, costs, sel
+    return A, costs, memory, robustness, sel

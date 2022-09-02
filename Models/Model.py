@@ -5,17 +5,21 @@ from Query_tools import terror_list, powerset
 
 # Parent class for the general model
 class Model:
-    def __init__(self, A, C, goal, bound, predicates, NF, new_equations):
+    def __init__(self, A, C, D, goal, bound, predicates, NF, new_equations):
         self.A = A
         self.C = C
+        self.D = D
         self.goal = goal
         self.bound = bound
         self.predicates = predicates
         self.NF = NF
         self.new_equations = new_equations
         self.model = grb.Model(name="MILQO")
-        self.opt_cost = 0
         self.opt_accuracy = 0
+        self.opt_cost = 0
+        self.opt_robustness = 0
+        self.opt_memory = 0
+        self.output_flag = 0
         self.generate_model()
 
     def generate_model(self):
@@ -55,34 +59,35 @@ class Model:
 
             for index, predicate_comb in enumerate(predicate_powerset):
                 p = (-1) ** (len(predicate_comb) - 1)
-                temp_vars = [1]
+                temp_accs = [1]
+                temp_robs = [1]
                 for ind_predicate in list(predicate_comb):
-                    temp_var = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
-                    self.model.addConstr(temp_var == temp_vars[-1] * sub_predicate_acc[ind_predicate])
-                    temp_vars.append(temp_var)
-                self.model.addConstr(conj_acc[index] == p * temp_vars[-1])
+                    temp_acc = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
+                    self.model.addConstr(temp_acc == temp_accs[-1] * sub_predicate_acc[ind_predicate])
+                    temp_accs.append(temp_acc)
+                self.model.addConstr(conj_acc[index] == p * temp_accs[-1])
             self.model.addConstr(total_accuracy == conj_acc.sum('*'))
 
         elif self.NF == 'CNF':
             for index, sub_predicate in enumerate(self.predicates):
                 sub_pred_powerset = powerset(range(len(sub_predicate)))[1:]
-                sub_pred_vars = self.model.addVars(len(sub_pred_powerset), lb=-1, ub=1, vtype=grb.GRB.CONTINUOUS)
+                sub_pred_accs = self.model.addVars(len(sub_pred_powerset), lb=-1, ub=1, vtype=grb.GRB.CONTINUOUS)
                 for index2, predicate_comb in enumerate(sub_pred_powerset):
                     p = (-1) ** (len(predicate_comb) - 1)
-                    temp_vars = [1]
+                    temp_accs = [1]
                     for ind_predicate in list(predicate_comb):
-                        temp_var = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
-                        self.model.addConstr(temp_var == temp_vars[-1] * Accs[terrorlist[index][ind_predicate]])
-                        temp_vars.append(temp_var)
-                    self.model.addConstr(sub_pred_vars[index2] == p * temp_vars[-1])
-                self.model.addConstr(sub_predicate_acc[index] == sub_pred_vars.sum('*'))
+                        temp_acc = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
+                        self.model.addConstr(temp_acc == temp_accs[-1] * Accs[terrorlist[index][ind_predicate]])
+                        temp_accs.append(temp_acc)
+                    self.model.addConstr(sub_pred_accs[index2] == p * temp_accs[-1])
+                self.model.addConstr(sub_predicate_acc[index] == sub_pred_accs.sum('*'))
 
-            temp_products = [1]
+            temp_accs = [1]
             for sub_predicate in range(len(self.predicates)):
-                temp_product = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
-                self.model.addConstr(temp_product == temp_products[-1] * sub_predicate_acc[sub_predicate])
-                temp_products.append(temp_product)
-            self.model.addConstr(total_accuracy == temp_products[-1])
+                temp_acc = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
+                self.model.addConstr(temp_acc == temp_accs[-1] * sub_predicate_acc[sub_predicate])
+                temp_accs.append(temp_acc)
+            self.model.addConstr(total_accuracy == temp_accs[-1])
 
         else:
             print("Query not in proper normal form, please retry")
@@ -91,6 +96,18 @@ class Model:
         self.model.addConstr(accuracy_loss == 1 - total_accuracy)
 
         total_cost = self.model.addVar(lb=0, vtype=grb.GRB.CONTINUOUS, name='total_cost')
+
+        B = self.model.addVars(self.M, vtype=grb.GRB.BINARY, name='B')
+        if self.new_equations['eq45']:
+            self.model.addConstrs(self.X[m, p] <= B[m] for m in range(self.M) for p in range(self.P))
+            self.model.addConstrs(self.X.sum(m, '*') >= B[m] for m in range(self.M))
+        else:
+            eps, l, u = 0.01, 0, self.P
+            self.model.addConstrs(self.X.sum(m, '*') <= 1 - eps + (u-1+eps)*B[m] for m in range(self.M))
+            self.model.addConstrs(self.X.sum(m, '*') >= B[m] + l*(1-B[m]) for m in range(self.M))
+
+        total_memory = self.model.addVar(lb=0, vtype=grb.GRB.CONTINUOUS, name='total_memory')
+        self.model.addConstr(total_memory == grb.quicksum(self.D[m] * B[m] for m in range(self.M)))
 
         if self.goal == 'cost':
             self.minmax = 'min'
@@ -116,22 +133,24 @@ class Model:
         self.model.update()
         self.model.optimize()
         if self.model.Status == 3:
+            self.output_flag = 1
             print("Solution not found, starting from greedy solution")
             self.compute_start_solution()
             self.model.optimize()
-        elif self.model.Status == 2:
+        if self.model.Status == 2:
             self.opt_accuracy = self.model.getVarByName('total_accuracy').x
             self.opt_cost = self.model.getVarByName('total_cost').x
+            self.opt_memory = self.model.getVarByName('total_memory').x
 
     # compute greedy solution for max accuracy for difficult optimization
     def compute_start_solution(self):
         self.model.reset()
-        self.model.params.FeasibilityTol = 1e-8
+        # self.model.params.FeasibilityTol = 1e-8
         flat_predicates = [item for sublist in self.predicates for item in sublist]
         for p in range(self.P):
             max_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
             self.X[max_loc, p].Start = 1
-            for m in range(len(self.C)):
+            for m in range(self.M):
                 if m != max_loc:
                     self.X[m, p].Start = 0
 
@@ -151,6 +170,13 @@ class Model:
                 self.compute_max_cost()
             elif minmax == 'min':
                 self.compute_min_cost()
+            else:
+                "No valid minmax, try again"
+        elif objective == 'memory':
+            if minmax == 'max':
+                self.compute_max_memory()
+            elif minmax == 'min':
+                self.compute_min_memory()
             else:
                 "No valid minmax, try again"
         else:
@@ -183,7 +209,6 @@ class Model:
         flat_predicates = [item for sublist in self.predicates for item in sublist]
         for p in range(self.P):
             max_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
-            print(self.X[max_loc, p])
             self.X[max_loc, p].lb = 1
             for m in range(self.M):
                 if m != max_loc:
@@ -211,6 +236,35 @@ class Model:
             for m in range(self.M):
                 if self.A[flat_predicates[p]][m] > 0 and self.C[m] > max_cost:
                     max_cost = self.C[m]
+                    max_loc = m
+            self.X[max_loc, p].lb = 1
+            for m in range(self.M):
+                if m != max_loc:
+                    self.X[m, p].ub = 0
+
+
+    def compute_min_memory(self):
+        flat_predicates = [item for sublist in self.predicates for item in sublist]
+        for p in range(self.P):
+            min_memory = max(self.D)
+            min_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            for m in range(self.M):
+                if self.A[flat_predicates[p]][m] > 0 and self.D[m] < min_memory:
+                    min_memory = self.D[m]
+                    min_loc = m
+            self.X[min_loc, p].lb = 1
+            for m in range(self.M):
+                if m != min_loc:
+                    self.X[m, p].ub = 0
+
+    def compute_max_memory(self):
+        flat_predicates = [item for sublist in self.predicates for item in sublist]
+        for p in range(self.P):
+            max_memory = min(self.D)
+            max_loc = self.A[flat_predicates[p]].index(min(self.A[flat_predicates[p]]))
+            for m in range(self.M):
+                if self.A[flat_predicates[p]][m] > 0 and self.D[m] > max_memory:
+                    max_memory = self.D[m]
                     max_loc = m
             self.X[max_loc, p].lb = 1
             for m in range(self.M):

@@ -41,7 +41,7 @@ for ablation in ablations:
         query_bounds[num_pred] = [0] * num_queries
         for query in range(0, num_queries):
             print(queries[num_pred][query])
-            model = order_opt(A, C, sel, 'cost', query_bounds[num_pred][query], queries[num_pred][query], ablation)
+            model = OrderOpt(A, C, sel, 'cost', query_bounds[num_pred][query], queries[num_pred][query], ablation)
             time_res += timeit.timeit('model.optimize()', globals=globals(), number=1)
             if ablation == ablations[0]:
                 query_bounds[num_pred][query] = model.getVarByName('total_accuracy').x - 0.1

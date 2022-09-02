@@ -5,10 +5,10 @@ from Models.Model import Model
 
 
 class OrderOpt(Model):
-    def __init__(self, A, C, Sel, goal, bound, predicates, NF, new_equations):
-        super().__init__(A, C, goal, bound, predicates, NF, new_equations)
+    def __init__(self, A, C, D, Sel, goal, bound, predicates, NF, new_equations):
+        Model.__init__(self, A, C, D, goal, bound, predicates, NF, new_equations)
         self.Sel = Sel
-        self.extend_model()
+        OrderOpt.extend_model(self)
 
     def extend_model(self):
         flat_predicates = [item for sublist in self.predicates for item in sublist]
@@ -61,7 +61,8 @@ class OrderOpt(Model):
                                   for g in range(Pg) for p in range(self.P) for j in range(1, J))
             self.model.addConstrs(Q[g, p, j] <= H[g, j-1]
                                   for g in range(Pg) for p in range(self.P) for j in range(1, J))
-            self.model.addConstrs(H[g, j] == H[g, j-1] - grb.quicksum(Q[g, p, j] * (1 - self.Sel[flat_predicates[p]])
+            self.model.addConstrs(H[g, j] == H[g, j-1] - grb.quicksum(Q[g, p, j] *
+                                                                      (1 - self.Sel[flat_predicates[p]])
                                                                       for p in terrorlist[g])
                                   for g in range(Pg) for j in range(1, J))
         else:
@@ -118,6 +119,3 @@ class OrderOpt(Model):
 
         total_cost = self.model.getVarByName('total_cost')
         self.model.addConstr(total_cost == max_R.sum('*'))
-
-
-
