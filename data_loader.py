@@ -19,13 +19,8 @@ def data_loader(filename):
     for key in A.keys():
         A[key] = list(A[key].values())
     memory = [155*(x-20)**2 + 1000 for x in costs]
-    robustness = A.copy()
-    for p in robustness.keys():
-        for m in range(len(costs)):
-            if A[p][m] > 0:
-                robustness[p][m] = random.randint(1, 100)/500
     df_sel = df_sel.set_index("class")
     df_sel = df_sel.drop("Unnamed: 0", axis=1)
     sel = df_sel.to_dict()
     sel = sel['selectivity']
-    return A, costs, memory, robustness, sel
+    return A, costs, memory, sel

@@ -131,13 +131,25 @@ class Model:
 
     def optimize(self):
         self.model.update()
+        self.model.params.TimeLimit = 20
         self.model.optimize()
+        self.output_flag = self.model.Status
         if self.model.Status == 3:
-            self.output_flag = 1
-            print("Solution not found, starting from greedy solution")
             self.compute_start_solution()
             self.model.optimize()
+            if self.model.Status == 2:
+                self.output_flag = self.model.Status
+                self.opt_accuracy = self.model.getVarByName('total_accuracy').x
+                self.opt_cost = self.model.getVarByName('total_cost').x
+                self.opt_memory = self.model.getVarByName('total_memory').x
+            else:
+                # TODO: calculate greedy values
+                self.output_flag = self.model.Status
+                self.opt_accuracy = 0
+                self.opt_cost = sum(self.C)
+                self.opt_memory = sum(self.D)
         if self.model.Status == 2:
+            self.output_flag = self.model.Status
             self.opt_accuracy = self.model.getVarByName('total_accuracy').x
             self.opt_cost = self.model.getVarByName('total_cost').x
             self.opt_memory = self.model.getVarByName('total_memory').x
@@ -145,14 +157,18 @@ class Model:
     # compute greedy solution for max accuracy for difficult optimization
     def compute_start_solution(self):
         self.model.reset()
-        # self.model.params.FeasibilityTol = 1e-8
+        self.model.params.FeasibilityTol = 1e-2
+        self.model.params.IntFeasTol = 1e-2
+        self.model.params.OptimalityTol = 1e-2
         flat_predicates = [item for sublist in self.predicates for item in sublist]
         for p in range(self.P):
             max_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
             self.X[max_loc, p].Start = 1
+
             for m in range(self.M):
                 if m != max_loc:
                     self.X[m, p].Start = 0
+        self.model.update()
 
     def compute_greedy_solution(self, objective, minmax):
         self.model.reset()

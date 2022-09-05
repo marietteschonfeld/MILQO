@@ -50,6 +50,7 @@ def calculate_weights(objectives):
         weights[key] = value/total
     return weights
 
+
 def flatten_objectives(objectives):
     flat_objectives = []
     for item in objectives:
@@ -104,9 +105,12 @@ def weighted_sum(model, objectives, weights):
 def lexicographic_method(model, ordering):
     for objective in ordering:
         model.model.setObjective(model.model.getVarByName(objective), grb.GRB.MINIMIZE)
-        model.model.optimize()
-        bound = model.model.getVarByName(objective).x
-        model.model.addConstr(model.model.getVarByName(objective) <= bound)
+        model.optimize()
+        if model.model.Status == 2:
+            bound = model.model.getVarByName(objective).x
+            model.model.addConstr(model.model.getVarByName(objective) <= bound)
+        else:
+            break
 
 
 def weighted_min_max(model, objectives, weights):
@@ -144,6 +148,6 @@ def goal_method(model, objectives, goals):
 
 
 def bounded_objective(model, objectives, lbs, ubs):
-    model.model.setObjective(model.model.getVarByName(objectives[0]), grb.GRB.MINIMIZE)
-    model.model.addConstrs(model.model.getVarByName(objectives[obj+1]) <= ubs[obj] for obj in range(len(objectives)-1))
-    model.model.addConstrs(model.model.getVarByName(objectives[obj+1]) >= lbs[obj] for obj in range(len(objectives)-1))
+    model.model.setObjective(model.model.getVarByName(objectives[-1]), grb.GRB.MINIMIZE)
+    model.model.addConstrs(model.model.getVarByName(objectives[obj]) <= ubs[obj] for obj in range(len(objectives)-1))
+    model.model.addConstrs(model.model.getVarByName(objectives[obj]) >= lbs[obj] for obj in range(len(objectives)-1))

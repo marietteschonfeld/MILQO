@@ -57,3 +57,6 @@ def powerset(s):
 def terror_list(query):
     return reduce(lambda a, b: a + [list(range(a[-1][-1]+1, 1+len(b)+a[-1][-1]))],
            query[1:], [list(range(len(query[0])))])
+
+def flat_list(lst):
+    return [item for sublist in lst for item in sublist]
