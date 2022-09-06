@@ -4,7 +4,7 @@ import pandas as pd, numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
 from sklearn.model_selection import cross_val_score
 import re, string
 import time
@@ -12,13 +12,14 @@ import pickle
 import os
 
 DB = pd.read_csv("NLP_modelDB.csv")
-DB.set_index("model_name")
 
 train = pd.read_csv('train.csv')
 test = pd.read_csv('test.csv')
 test_labels = pd.read_csv('test_labels.csv')
 
-label_cols = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
+label_cols = ['toxic', 'severe_toxic', 'obscene',
+              'threat', 'insult', 'identity_hate',
+              'negative', 'neutral', 'positive']
 train.describe()
 
 COMMENT = 'comment_text'
@@ -63,6 +64,7 @@ def classify(m,r, comment):
     res = np.rint(m.predict_proba(transformed.multiply(r)))
     return res[0, 1]
 
+scores = [f1_score, accuracy_score, precision_score, recall_score]
 preds = np.zeros((len(test), len(label_cols)))
 for i, j in enumerate(label_cols):
     m, r = get_mdl(train[j])
@@ -70,33 +72,29 @@ for i, j in enumerate(label_cols):
     with open(filename, 'wb') as file:
         pickle.dump(vec, file)
     model_size = os.path.getsize(filename)
-    preds[:, i] = m.predict_proba(test_x.multiply(r))[:, 1]
-    # accuracy = 0
-    # count = 0
-    # for index in range(test.values.shape[0]):
-    #     if test_labels[j].iloc[index] != -1:
-    #         accuracy += (preds[index, i] == test_labels[j].iloc[index])
-    #         count += 1
-    score = roc_auc_score(test_labels[j], preds[:, i])
+    preds[:, i] = np.rint(m.predict_proba(test_x.multiply(r))[:, 1])
     start = time.time()
-    for comment in test[COMMENT]:
+    for comment in test[COMMENT][0:10000]:
         classification = classify(m, r, comment)
     end = time.time()
-    cost = ((end-start) * 1000) / len(test[COMMENT])
-    print("For label {} roc_auc_score is {} and cost is {} ms.".format(j, score, cost))
-    DB_entry = {
-        "model_name": ["LR_{}".format(j)],
-        "cost": [round(cost)],
-        "memory": [vec_file_size+model_size],
-        "toxic": [0],
-        "severe_toxic": [0],
-        "obscene": [0],
-        "threat": [0],
-        "insult": [0],
-        "identity_hate": [0]
-    }
-    DB_entry[j] = round(score, 5)
-    DB = pd.concat([DB, pd.DataFrame(DB_entry)])
+    cost = ((end-start) * 1000) / len(test[COMMENT][0:10000])
+    for metric in scores:
+       score = metric(test_labels[j], preds[:, i])
+       DB_entry = {
+            "model_name": ["LR_{}".format(j)],
+            "cost": [round(cost)],
+            "memory": [vec_file_size+model_size],
+            "score_type": metric.__name__,
+            "toxic": [0],
+            "severe_toxic": [0],
+            "obscene": [0],
+            "threat": [0],
+            "insult": [0],
+            "identity_hate": [0]
+       }
+       DB_entry[j] = round(score, 5)
+       DB = pd.concat([DB, pd.DataFrame(DB_entry)])
+       DB.to_csv("NLP_modelDB.csv")
 
 DB.to_csv("NLP_modelDB.csv")
 

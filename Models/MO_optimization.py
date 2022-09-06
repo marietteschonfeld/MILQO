@@ -103,6 +103,7 @@ def weighted_sum(model, objectives, weights):
 
 
 def lexicographic_method(model, ordering):
+    ordering.reverse()
     for objective in ordering:
         model.model.setObjective(model.model.getVarByName(objective), grb.GRB.MINIMIZE)
         model.optimize()

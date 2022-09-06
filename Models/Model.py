@@ -60,7 +60,6 @@ class Model:
             for index, predicate_comb in enumerate(predicate_powerset):
                 p = (-1) ** (len(predicate_comb) - 1)
                 temp_accs = [1]
-                temp_robs = [1]
                 for ind_predicate in list(predicate_comb):
                     temp_acc = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
                     self.model.addConstr(temp_acc == temp_accs[-1] * sub_predicate_acc[ind_predicate])
@@ -131,7 +130,7 @@ class Model:
 
     def optimize(self):
         self.model.update()
-        self.model.params.TimeLimit = 20
+        self.model.params.TimeLimit = 180
         self.model.optimize()
         self.output_flag = self.model.Status
         if self.model.Status == 3:
@@ -153,6 +152,11 @@ class Model:
             self.opt_accuracy = self.model.getVarByName('total_accuracy').x
             self.opt_cost = self.model.getVarByName('total_cost').x
             self.opt_memory = self.model.getVarByName('total_memory').x
+        if self.model.Status == 9:
+            self.output_flag = self.model.Status
+            self.opt_accuracy = 0
+            self.opt_cost = sum(self.C)
+            self.opt_memory = sum(self.D)
 
     # compute greedy solution for max accuracy for difficult optimization
     def compute_start_solution(self):

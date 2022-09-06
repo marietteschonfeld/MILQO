@@ -3,11 +3,11 @@ from data_loader import data_loader
 import ast
 
 
-def query_generation(lb, ub, stepsize, num):
+def query_generation(num_preds, num):
     filename = "C:\\Users\\marie\\Documents\\Software\\MILQO\\model_stats_ap.csv"
     A, _, _, _ = data_loader(filename)
     queries = []
-    for num_predicates in range(lb, ub, stepsize):
+    for num_predicates in num_preds:
         queries.append(generate_queries(num_predicates, num, A))
     queries = [item for sublist in queries for item in sublist]
     with open("queries.txt", 'w') as fp:
@@ -15,6 +15,10 @@ def query_generation(lb, ub, stepsize, num):
             # write each item on a new line
             fp.write("%s\n" % item)
     print('Done')
+
+num_preds = [2, 4, 8, 16, 32]
+num = 2
+query_generation(num_preds, num)
 
 queries = []
 with open('queries.txt', 'r') as fp:
@@ -26,6 +30,3 @@ with open('queries.txt', 'r') as fp:
         # add current item to the list
         queries.append(ast.literal_eval(x))
 
-stepsize = 2
-lb, ub, num = 2, 17, 5
-query_generation(lb, ub, stepsize, num)
