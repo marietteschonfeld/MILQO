@@ -10,32 +10,43 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 import pickle
 import random
 import numpy as np
+from sklearn.model_selection import train_test_split
 
-train = pd.read_csv('train.csv')
-test = pd.read_csv('test.csv')
-test_labels = pd.read_csv('test_labels.csv')
+seed = 2022
+
+import os
+os.environ['PYTHONHASHSEED']=str(seed)
+import random
+random.seed(seed)
+import tensorflow as tf
+tf.random.set_seed(seed)
+tf.keras.utils.set_random_seed(
+    seed
+)
+
+df = pd.read_csv('train_extend.csv')
+df = df.drop(['Unnamed: 0'], axis=1)
+train, test = train_test_split(df, test_size=0.4, random_state=seed)
+train = pd.DataFrame(train, columns=df.columns)
+test = pd.DataFrame(test, columns=df.columns)
 
 DB = pd.read_csv("NLP_modelDB.csv")
-DB.set_index("model_name")
 
 list_classes = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]
 list_sentences_train = train["comment_text"]
-
-test = test[test_labels["toxic"] != -1]
-test_labels = test_labels[test_labels["toxic"] != -1]
 list_sentences_test = test["comment_text"]
 
-max_features = 20000
+max_features = 25000
 tokenizer = Tokenizer(num_words=max_features)
 tokenizer.fit_on_texts(list(list_sentences_train))
 list_tokenized_train = tokenizer.texts_to_sequences(list_sentences_train)
 list_tokenized_test = tokenizer.texts_to_sequences(list_sentences_test)
 
-with open('models/small_LSTM_tokenizer.pickle', 'wb') as handle:
+with open('medium_LSTM_tokenizer.pickle', 'wb') as handle:
     pickle.dump(tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
-tokenizer_file_size = os.path.getsize("models/small_LSTM_tokenizer.pickle")
+tokenizer_file_size = os.path.getsize("medium_LSTM_tokenizer.pickle")
 
-maxlen = 200
+maxlen = 250
 X_t = pad_sequences(list_tokenized_train, maxlen=maxlen)
 X_te = pad_sequences(list_tokenized_test, maxlen=maxlen)
 
@@ -59,7 +70,7 @@ def create_model(size1, size2):
     return model
 
 batch_size = 32
-epochs = 5
+epochs = 10
 
 def classify(model, comment):
     token_comment = tokenizer.texts_to_sequences([comment])
@@ -78,10 +89,12 @@ def get_folder_size(start_path = '.'):
     return total_size
 
 scores = [f1_score, accuracy_score, precision_score, recall_score]
-for i, label1 in enumerate(list_classes[0: -3]):
-    for j, label2 in enumerate(list_classes[i+1:-2]):
-        for k, label3 in enumerate(list_classes[j+1:-1]):
-            for m, label4 in enumerate(list_classes[k+1:]):
+for i in range(0, len(list_classes)-3):
+    for j in range(i+1, len(list_classes)-2):
+        for k in range(j+1, len(list_classes)-1):
+            for m in range(k+1, len(list_classes)):
+                label1, label2, label3, label4 = \
+                    list_classes[i], list_classes[j], list_classes[k], list_classes[m]
                 y = train[[label1, label2, label3, label4]].values
                 model = create_model(size1=random.randint(60, 65), size2=random.randint(35, 45))
                 model.fit(X_t, y, batch_size=batch_size, epochs=epochs, validation_split=0.1)
@@ -98,10 +111,10 @@ for i, label1 in enumerate(list_classes[0: -3]):
                       format(label1, label2, label3, label4, cost))
 
                 for score in scores:
-                    score1 = score(test_labels[label1], np.rint(predictions[:, 0]))
-                    score2 = score(test_labels[label2], np.rint(predictions[:, 1]))
-                    score3 = score(test_labels[label1], np.rint(predictions[:, 2]))
-                    score4 = score(test_labels[label2], np.rint(predictions[:, 3]))
+                    score1 = score(test[label1], np.rint(predictions[:, 0]))
+                    score2 = score(test[label2], np.rint(predictions[:, 1]))
+                    score3 = score(test[label1], np.rint(predictions[:, 2]))
+                    score4 = score(test[label2], np.rint(predictions[:, 3]))
                     DB_entry = {
                         "model_name": [model_name],
                         "cost": [round(cost)],

@@ -17,7 +17,6 @@ class Model:
         self.model = grb.Model(name="MILQO")
         self.opt_accuracy = 0
         self.opt_cost = 0
-        self.opt_robustness = 0
         self.opt_memory = 0
         self.output_flag = 0
         self.generate_model()
@@ -29,17 +28,21 @@ class Model:
         # self.model predicate as (x & y) | (w & z)
         flat_predicates = [item for sublist in self.predicates for item in sublist]
         self.P = len(flat_predicates)
-        self.M = len(self.C)
+        models = list(self.C.keys())
+        self.M = len(models)
 
         self.X = self.model.addVars(self.M, self.P, vtype=grb.GRB.BINARY, name='X')
 
         self.model.addConstrs(self.X.sum('*', p) == 1 for p in range(self.P))
 
         if self.new_equations['accuracy']:
-            self.model.addConstrs(self.X[m, p] <= ceil(self.A[flat_predicates[p]][m]) for m in range(self.M) for p in range(self.P))
+            self.model.addConstrs(self.X[m, p] <= ceil(self.A[flat_predicates[p]][models[m]]) for m in range(self.M) for p in range(self.P))
+            for m in range(self.M):
+                for p in range(self.P):
+                    self.X[m, p].ub = ceil(self.A[flat_predicates[p]][models[m]])
 
         Accs = self.model.addVars(self.P, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Accs')
-        self.model.addConstrs(Accs[p] == grb.quicksum(self.A[flat_predicates[p]][m]*self.X[m, p] for m in range(self.M)) for p in range(self.P))
+        self.model.addConstrs(Accs[p] == grb.quicksum(self.A[flat_predicates[p]][models[m]]*self.X[m, p] for m in range(self.M)) for p in range(self.P))
 
         total_accuracy = self.model.addVar(vtype=grb.GRB.CONTINUOUS, lb=0, ub=1, name='total_accuracy')
         sub_predicate_acc = self.model.addVars(len(self.predicates), lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='sub_predicate_acc')
@@ -106,7 +109,7 @@ class Model:
             self.model.addConstrs(self.X.sum(m, '*') >= B[m] + l*(1-B[m]) for m in range(self.M))
 
         total_memory = self.model.addVar(lb=0, vtype=grb.GRB.CONTINUOUS, name='total_memory')
-        self.model.addConstr(total_memory == grb.quicksum(self.D[m] * B[m] for m in range(self.M)))
+        self.model.addConstr(total_memory == grb.quicksum(self.D[models[m]] * B[m] for m in range(self.M)))
 
         if self.goal == 'cost':
             self.minmax = 'min'
@@ -128,9 +131,9 @@ class Model:
         elif type == 'eq':
             self.model.addConstr(self.model.getVarByName(constraint_name) == value)
 
-    def optimize(self):
+    def optimize(self, timeout=60*60):
         self.model.update()
-        self.model.params.TimeLimit = 180
+        self.model.params.TimeLimit = timeout
         self.model.optimize()
         self.output_flag = self.model.Status
         if self.model.Status == 3:
@@ -138,6 +141,7 @@ class Model:
             self.model.optimize()
             if self.model.Status == 2:
                 self.output_flag = self.model.Status
+                print("FUCK")
                 self.opt_accuracy = self.model.getVarByName('total_accuracy').x
                 self.opt_cost = self.model.getVarByName('total_cost').x
                 self.opt_memory = self.model.getVarByName('total_memory').x
@@ -145,8 +149,8 @@ class Model:
                 # TODO: calculate greedy values
                 self.output_flag = self.model.Status
                 self.opt_accuracy = 0
-                self.opt_cost = sum(self.C)
-                self.opt_memory = sum(self.D)
+                self.opt_cost = sum(self.C.values())
+                self.opt_memory = sum(self.D.values())
         if self.model.Status == 2:
             self.output_flag = self.model.Status
             self.opt_accuracy = self.model.getVarByName('total_accuracy').x
@@ -155,8 +159,8 @@ class Model:
         if self.model.Status == 9:
             self.output_flag = self.model.Status
             self.opt_accuracy = 0
-            self.opt_cost = sum(self.C)
-            self.opt_memory = sum(self.D)
+            self.opt_cost = sum(self.C.values())
+            self.opt_memory = sum(self.D.values())
 
     # compute greedy solution for max accuracy for difficult optimization
     def compute_start_solution(self):
@@ -166,7 +170,7 @@ class Model:
         self.model.params.OptimalityTol = 1e-2
         flat_predicates = [item for sublist in self.predicates for item in sublist]
         for p in range(self.P):
-            max_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            max_loc = list(self.A[flat_predicates[p]].values()).index(max(self.A[flat_predicates[p]].values()))
             self.X[max_loc, p].Start = 1
 
             for m in range(self.M):
@@ -212,14 +216,15 @@ class Model:
 
     def compute_min_accuracy(self):
         flat_predicates = [item for sublist in self.predicates for item in sublist]
+        models = list(self.C.keys())
         for p in range(self.P):
-            min_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            min_loc = list(self.A[flat_predicates[p]].values()).index(max(self.A[flat_predicates[p]].values()))
             min_acc = 1
             for m in range(self.M):
-                temp_acc = self.A[flat_predicates[p]][m]
+                temp_acc = self.A[flat_predicates[p]][models[m]]
                 if min_acc > temp_acc > 0:
                     min_loc = m
-                    min_acc = self.A[flat_predicates[p]][m]
+                    min_acc = self.A[flat_predicates[p]][models[m]]
             self.X[min_loc, p].lb = 1
             for m in range(self.M):
                 if m != min_loc:
@@ -228,7 +233,7 @@ class Model:
     def compute_max_accuracy(self):
         flat_predicates = [item for sublist in self.predicates for item in sublist]
         for p in range(self.P):
-            max_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            max_loc = list(self.A[flat_predicates[p]].values()).index(max(self.A[flat_predicates[p]].values()))
             self.X[max_loc, p].lb = 1
             for m in range(self.M):
                 if m != max_loc:
@@ -236,12 +241,13 @@ class Model:
 
     def compute_min_cost(self):
         flat_predicates = [item for sublist in self.predicates for item in sublist]
+        models = list(self.C.keys())
         for p in range(self.P):
-            min_cost = max(self.C)
-            min_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            min_cost = max(self.C.values())
+            min_loc = list(self.A[flat_predicates[p]].values()).index(max(self.A[flat_predicates[p]].values()))
             for m in range(self.M):
-                if self.A[flat_predicates[p]][m] > 0 and self.C[m] < min_cost:
-                    min_cost = self.C[m]
+                if self.A[flat_predicates[p]][models[m]] > 0 and self.C[models[m]] < min_cost:
+                    min_cost = self.C[models[m]]
                     min_loc = m
             self.X[min_loc, p].lb = 1
             for m in range(self.M):
@@ -250,12 +256,13 @@ class Model:
 
     def compute_max_cost(self):
         flat_predicates = [item for sublist in self.predicates for item in sublist]
+        models = list(self.C.keys())
         for p in range(self.P):
-            max_cost = min(self.C)
-            max_loc = self.A[flat_predicates[p]].index(min(self.A[flat_predicates[p]]))
+            max_cost = min(self.C.values())
+            max_loc = list(self.A[flat_predicates[p]].values()).index(min(self.A[flat_predicates[p]].values()))
             for m in range(self.M):
-                if self.A[flat_predicates[p]][m] > 0 and self.C[m] > max_cost:
-                    max_cost = self.C[m]
+                if self.A[flat_predicates[p]][models[m]] > 0 and self.C[models[m]] > max_cost:
+                    max_cost = self.C[models[m]]
                     max_loc = m
             self.X[max_loc, p].lb = 1
             for m in range(self.M):
@@ -265,12 +272,13 @@ class Model:
 
     def compute_min_memory(self):
         flat_predicates = [item for sublist in self.predicates for item in sublist]
+        models = list(self.C.keys())
         for p in range(self.P):
-            min_memory = max(self.D)
-            min_loc = self.A[flat_predicates[p]].index(max(self.A[flat_predicates[p]]))
+            min_memory = max(self.D.values())
+            min_loc = list(self.A[flat_predicates[p]].values()).index(max(self.A[flat_predicates[p]].values()))
             for m in range(self.M):
-                if self.A[flat_predicates[p]][m] > 0 and self.D[m] < min_memory:
-                    min_memory = self.D[m]
+                if self.A[flat_predicates[p]][models[m]] > 0 and self.D[models[m]] < min_memory:
+                    min_memory = self.D[models[m]]
                     min_loc = m
             self.X[min_loc, p].lb = 1
             for m in range(self.M):
@@ -279,12 +287,13 @@ class Model:
 
     def compute_max_memory(self):
         flat_predicates = [item for sublist in self.predicates for item in sublist]
+        models = list(self.C.keys())
         for p in range(self.P):
-            max_memory = min(self.D)
-            max_loc = self.A[flat_predicates[p]].index(min(self.A[flat_predicates[p]]))
+            max_memory = min(self.D.values())
+            max_loc = list(self.A[flat_predicates[p]].values()).index(min(self.A[flat_predicates[p]].values()))
             for m in range(self.M):
-                if self.A[flat_predicates[p]][m] > 0 and self.D[m] > max_memory:
-                    max_memory = self.D[m]
+                if self.A[flat_predicates[p]][models[m]] > 0 and self.D[models[m]] > max_memory:
+                    max_memory = self.D[models[m]]
                     max_loc = m
             self.X[max_loc, p].lb = 1
             for m in range(self.M):

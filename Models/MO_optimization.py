@@ -62,9 +62,10 @@ def flatten_objectives(objectives):
     return flat_objectives
 
 
-def set_MOO_method(model, method, objectives, p=0, goals=None, lbs=None, ubs=None):
+def set_MOO_method(model, method, objectives, p=0, weights=None, goals=None, lbs=None, ubs=None):
     normalize_objectives(model)
-    weights = calculate_weights(objectives)
+    if weights == None:
+        weights = calculate_weights(objectives)
     objectives = flatten_objectives(objectives)
     if method == 'weighted_global_criterion':
         weighted_global_criterion(model, objectives, weights, p)
@@ -80,11 +81,14 @@ def set_MOO_method(model, method, objectives, p=0, goals=None, lbs=None, ubs=Non
         weighted_product(model, objectives, weights)
     elif method == 'goal_method':
         goal_method(model, objectives, goals)
+    elif method == 'archimedean_goal_method':
+        archimedean_goal_method(model, objectives, weights, goals)
+    elif method == 'goal_attainment_method':
+        goal_attainment_method(model, objectives, weights, goals)
     elif method == 'bounded_objective':
         bounded_objective(model, objectives, lbs, ubs)
     model.model.update()
-    model.optimize()
-
+    return model
 
 def weighted_global_criterion(model, objectives, weights, p):
     temp_products = [[1]*len(objectives)]
@@ -104,12 +108,13 @@ def weighted_sum(model, objectives, weights):
 
 def lexicographic_method(model, ordering):
     ordering.reverse()
+    eps = 10**-6
     for objective in ordering:
         model.model.setObjective(model.model.getVarByName(objective), grb.GRB.MINIMIZE)
         model.optimize()
         if model.model.Status == 2:
             bound = model.model.getVarByName(objective).x
-            model.model.addConstr(model.model.getVarByName(objective) <= bound)
+            model.model.addConstr(model.model.getVarByName(objective) <= bound+eps)
         else:
             break
 
@@ -117,7 +122,7 @@ def lexicographic_method(model, ordering):
 def weighted_min_max(model, objectives, weights):
     # lambda is a protected name...
     labda = model.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='labda')
-    # due to true normalization the utopia points are just 1
+    # due to true normalization the utopia points are just 0
     model.model.addConstrs(weights[objectives[obj]] * model.model.getVarByName(objectives[obj]) <= labda for obj in range(len(objectives)))
     model.model.setObjective(labda, grb.GRB.MINIMIZE)
 
@@ -142,13 +147,26 @@ def weighted_product(model, objectives, weights):
 
 def goal_method(model, objectives, goals):
     d = model.model.addVars(len(objectives), 2, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='d')
-    model.model.addConstrs(model.model.getVarByName(objectives[obj]) + d[obj, 0] - d[obj, 1] == goals[obj]
-                     for obj in range(len(objectives)))
+    model.model.addConstrs(model.model.getVarByName(objectives[idx]) + d[idx, 0] - d[idx, 1] == goals[obj]
+                     for idx,obj in enumerate(objectives))
     model.model.addConstrs(d[obj, 0] * d[obj, 1] == 0 for obj in range(len(objectives)))
     model.model.setObjective(d.sum('*', '*'), grb.GRB.MINIMIZE)
+
+def archimedean_goal_method(model, objectives, weights, goals):
+    d = model.model.addVars(len(objectives), 2, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='d')
+    model.model.addConstrs(model.model.getVarByName(objectives[idx]) + d[idx, 0] - d[idx, 1] == goals[obj]
+                           for idx,obj in enumerate(objectives))
+    model.model.addConstrs(d[obj, 0] * d[obj, 1] == 0 for obj in range(len(objectives)))
+    model.model.setObjective(grb.quicksum(weights[objectives[obj]]*(d[obj, 0] + d[obj, 1]) for obj in range(len(objectives))))
+
+def goal_attainment_method(model, objectives, weights, goals):
+    labda = model.model.addVar(vtype=grb.GRB.CONTINUOUS, name='labda')
+    model.model.addConstrs(model.model.getVarByName(obj)
+                            <= goals[obj] + weights[obj]*labda for obj in objectives)
+    model.model.setObjective(labda, grb.GRB.MINIMIZE)
 
 
 def bounded_objective(model, objectives, lbs, ubs):
     model.model.setObjective(model.model.getVarByName(objectives[-1]), grb.GRB.MINIMIZE)
-    model.model.addConstrs(model.model.getVarByName(objectives[obj]) <= ubs[obj] for obj in range(len(objectives)-1))
-    model.model.addConstrs(model.model.getVarByName(objectives[obj]) >= lbs[obj] for obj in range(len(objectives)-1))
+    model.model.addConstrs(model.model.getVarByName(obj) <= ubs[obj] for obj in objectives)
+    model.model.addConstrs(model.model.getVarByName(obj) >= lbs[obj] for obj in objectives)

@@ -10,14 +10,14 @@ def query_generation(num_preds, num):
     for num_predicates in num_preds:
         queries.append(generate_queries(num_predicates, num, A))
     queries = [item for sublist in queries for item in sublist]
-    with open("queries.txt", 'w') as fp:
+    with open("queries_8.txt", 'w') as fp:
         for item in queries:
             # write each item on a new line
             fp.write("%s\n" % item)
     print('Done')
 
-num_preds = [2, 4, 8, 16, 32]
-num = 2
+num_preds = [8]
+num = 3
 query_generation(num_preds, num)
 
 queries = []
