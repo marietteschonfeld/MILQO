@@ -2,7 +2,6 @@ from Query_tools import generate_queries
 from data_loader import data_loader
 import ast
 
-
 def query_generation(num_preds, num):
     filename = "C:\\Users\\marie\\Documents\\Software\\MILQO\\model_stats_ap.csv"
     A, _, _, _ = data_loader(filename)
@@ -10,14 +9,16 @@ def query_generation(num_preds, num):
     for num_predicates in num_preds:
         queries.append(generate_queries(num_predicates, num, A))
     queries = [item for sublist in queries for item in sublist]
-    with open("queries_8.txt", 'w') as fp:
+    with open("queries_4.txt", 'w') as fp:
         for item in queries:
             # write each item on a new line
             fp.write("%s\n" % item)
     print('Done')
 
-num_preds = [8]
-num = 3
+# num_preds = [8]
+num_preds = [4]
+# num_preds = [2,4,8,12,16,20,24]
+num = 5
 query_generation(num_preds, num)
 
 queries = []

@@ -5,16 +5,17 @@ from Query_tools import terror_list, powerset
 
 # Parent class for the general model
 class Model:
-    def __init__(self, A, C, D, goal, bound, predicates, NF, new_equations):
+    def __init__(self, A, C, D, Sel, goal, bound, predicates, NF, new_equations, env):
         self.A = A
         self.C = C
         self.D = D
+        self.Sel = Sel
         self.goal = goal
         self.bound = bound
         self.predicates = predicates
         self.NF = NF
         self.new_equations = new_equations
-        self.model = grb.Model(name="MILQO")
+        self.model = grb.Model(name="MILQO", env=env)
         self.opt_accuracy = 0
         self.opt_cost = 0
         self.opt_memory = 0
@@ -45,49 +46,49 @@ class Model:
         self.model.addConstrs(Accs[p] == grb.quicksum(self.A[flat_predicates[p]][models[m]]*self.X[m, p] for m in range(self.M)) for p in range(self.P))
 
         total_accuracy = self.model.addVar(vtype=grb.GRB.CONTINUOUS, lb=0, ub=1, name='total_accuracy')
-        sub_predicate_acc = self.model.addVars(len(self.predicates), lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='sub_predicate_acc')
+        group_acc = self.model.addVars(len(self.predicates), lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='sub_predicate_acc')
 
         terrorlist = terror_list(self.predicates)
         if self.NF == 'DNF':
-            for index, sub_predicate in enumerate(self.predicates):
+            for index, group in enumerate(self.predicates):
                 temp_accs = [1]
-                for index2, sub_sub_predicate in enumerate(sub_predicate):
+                for index2, predicate in enumerate(group):
                     temp_acc = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
                     self.model.addConstr(temp_acc == temp_accs[-1] * Accs[terrorlist[index][index2]])
                     temp_accs.append(temp_acc)
-                self.model.addConstr(sub_predicate_acc[index] == temp_accs[-1])
+                self.model.addConstr(group_acc[index] == temp_accs[-1])
 
             predicate_powerset = powerset(range(len(self.predicates)))[1:]
             conj_acc = self.model.addVars(len(predicate_powerset), lb=-1, ub=1, vtype=grb.GRB.CONTINUOUS)
 
-            for index, predicate_comb in enumerate(predicate_powerset):
-                p = (-1) ** (len(predicate_comb) - 1)
+            for index, group_comb in enumerate(predicate_powerset):
+                p = (-1) ** (len(group_comb) - 1)
                 temp_accs = [1]
-                for ind_predicate in list(predicate_comb):
+                for ind_predicate in list(group_comb):
                     temp_acc = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
-                    self.model.addConstr(temp_acc == temp_accs[-1] * sub_predicate_acc[ind_predicate])
+                    self.model.addConstr(temp_acc == temp_accs[-1] * group_acc[ind_predicate])
                     temp_accs.append(temp_acc)
                 self.model.addConstr(conj_acc[index] == p * temp_accs[-1])
             self.model.addConstr(total_accuracy == conj_acc.sum('*'))
 
         elif self.NF == 'CNF':
-            for index, sub_predicate in enumerate(self.predicates):
-                sub_pred_powerset = powerset(range(len(sub_predicate)))[1:]
-                sub_pred_accs = self.model.addVars(len(sub_pred_powerset), lb=-1, ub=1, vtype=grb.GRB.CONTINUOUS)
-                for index2, predicate_comb in enumerate(sub_pred_powerset):
+            for group_num, group in enumerate(self.predicates):
+                group_powerset = powerset(range(len(group)))[1:]
+                group_accs = self.model.addVars(len(group_powerset), lb=-1, ub=1, vtype=grb.GRB.CONTINUOUS)
+                for predicate_num, predicate_comb in enumerate(group_powerset):
                     p = (-1) ** (len(predicate_comb) - 1)
                     temp_accs = [1]
                     for ind_predicate in list(predicate_comb):
                         temp_acc = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
-                        self.model.addConstr(temp_acc == temp_accs[-1] * Accs[terrorlist[index][ind_predicate]])
+                        self.model.addConstr(temp_acc == temp_accs[-1] * Accs[(terrorlist[group_num][ind_predicate])])
                         temp_accs.append(temp_acc)
-                    self.model.addConstr(sub_pred_accs[index2] == p * temp_accs[-1])
-                self.model.addConstr(sub_predicate_acc[index] == sub_pred_accs.sum('*'))
+                    self.model.addConstr(group_accs[predicate_num] == p * temp_accs[-1])
+                self.model.addConstr(group_acc[group_num] == group_accs.sum('*'))
 
             temp_accs = [1]
-            for sub_predicate in range(len(self.predicates)):
+            for group_num in range(len(self.predicates)):
                 temp_acc = self.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS)
-                self.model.addConstr(temp_acc == temp_accs[-1] * sub_predicate_acc[sub_predicate])
+                self.model.addConstr(temp_acc == temp_accs[-1] * group_acc[group_num])
                 temp_accs.append(temp_acc)
             self.model.addConstr(total_accuracy == temp_accs[-1])
 
@@ -98,18 +99,8 @@ class Model:
         self.model.addConstr(accuracy_loss == 1 - total_accuracy)
 
         total_cost = self.model.addVar(lb=0, vtype=grb.GRB.CONTINUOUS, name='total_cost')
-
-        B = self.model.addVars(self.M, vtype=grb.GRB.BINARY, name='B')
-        if self.new_equations['eq45']:
-            self.model.addConstrs(self.X[m, p] <= B[m] for m in range(self.M) for p in range(self.P))
-            self.model.addConstrs(self.X.sum(m, '*') >= B[m] for m in range(self.M))
-        else:
-            eps, l, u = 0.01, 0, self.P
-            self.model.addConstrs(self.X.sum(m, '*') <= 1 - eps + (u-1+eps)*B[m] for m in range(self.M))
-            self.model.addConstrs(self.X.sum(m, '*') >= B[m] + l*(1-B[m]) for m in range(self.M))
-
         total_memory = self.model.addVar(lb=0, vtype=grb.GRB.CONTINUOUS, name='total_memory')
-        self.model.addConstr(total_memory == grb.quicksum(self.D[models[m]] * B[m] for m in range(self.M)))
+
 
         if self.goal == 'cost':
             self.minmax = 'min'
@@ -138,10 +129,10 @@ class Model:
         self.output_flag = self.model.Status
         if self.model.Status == 3:
             self.compute_start_solution()
+            # self.model.feasRelaxS(1, False, False, True)
             self.model.optimize()
             if self.model.Status == 2:
                 self.output_flag = self.model.Status
-                print("FUCK")
                 self.opt_accuracy = self.model.getVarByName('total_accuracy').x
                 self.opt_cost = self.model.getVarByName('total_cost').x
                 self.opt_memory = self.model.getVarByName('total_memory').x
@@ -151,12 +142,12 @@ class Model:
                 self.opt_accuracy = 0
                 self.opt_cost = sum(self.C.values())
                 self.opt_memory = sum(self.D.values())
-        if self.model.Status == 2:
+        if self.model.Status == 2 or (self.model.Status == 9 and self.model.solCount>0):
             self.output_flag = self.model.Status
             self.opt_accuracy = self.model.getVarByName('total_accuracy').x
             self.opt_cost = self.model.getVarByName('total_cost').x
             self.opt_memory = self.model.getVarByName('total_memory').x
-        if self.model.Status == 9:
+        else:
             self.output_flag = self.model.Status
             self.opt_accuracy = 0
             self.opt_cost = sum(self.C.values())
@@ -172,7 +163,6 @@ class Model:
         for p in range(self.P):
             max_loc = list(self.A[flat_predicates[p]].values()).index(max(self.A[flat_predicates[p]].values()))
             self.X[max_loc, p].Start = 1
-
             for m in range(self.M):
                 if m != max_loc:
                     self.X[m, p].Start = 0
@@ -205,7 +195,7 @@ class Model:
                 "No valid minmax, try again"
         else:
             print("no valid objective, try again")
-        self.optimize()
+        self.optimize(timeout=60*5)
         self.reset_bounds()
 
     def reset_bounds(self):

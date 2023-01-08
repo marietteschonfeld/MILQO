@@ -38,7 +38,7 @@ list_sentences_train = train["comment_text"]
 
 list_sentences_test = test["comment_text"]
 
-max_features = 30000
+max_features = 20000
 tokenizer = Tokenizer(num_words=max_features)
 tokenizer.fit_on_texts(list(list_sentences_train))
 list_tokenized_train = tokenizer.texts_to_sequences(list_sentences_train)
@@ -48,7 +48,7 @@ with open('small_LSTM_tokenizer.pickle', 'wb') as handle:
     pickle.dump(tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
 tokenizer_file_size = os.path.getsize("small_LSTM_tokenizer.pickle")
 
-maxlen = 300
+maxlen = 200
 X_t = pad_sequences(list_tokenized_train, maxlen=maxlen)
 X_te = pad_sequences(list_tokenized_test, maxlen=maxlen)
 
@@ -72,7 +72,7 @@ def create_model(size1, size2):
     return model
 
 batch_size = 32
-epochs = 10
+epochs = 5
 
 def classify(model, comment):
     token_comment = tokenizer.texts_to_sequences([comment])
@@ -94,7 +94,7 @@ scores = [f1_score, accuracy_score, precision_score, recall_score]
 for i, label1 in enumerate(list_classes[0: -1]):
     for j, label2 in enumerate(list_classes[i+1:]):
         y = train[[label1, label2]].values
-        model = create_model(size1=random.randint(50, 60), size2=random.randint(30, 40))
+        model = create_model(size1=random.randint(35, 45), size2=random.randint(15, 25))
         model.fit(X_t, y, batch_size=batch_size, epochs=epochs, validation_split=0.1)
         model_name = "LSTM_small_{}_{}".format(label1, label2)
         model.save(model_name)

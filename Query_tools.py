@@ -9,11 +9,13 @@ def generate_queries(num_predicates, n, A):
     classes = A.keys()
     queries = []
     for i in range(n):
+        classes = A.keys()
         pred_left = num_predicates
         query = []
         while pred_left > 0:
             sub_predicate_size = random.randint(1, min(3, pred_left))
             sub_predicate = random.sample(classes, sub_predicate_size)
+            classes = list(set(classes) - set(sub_predicate))
             query.append(sub_predicate)
             pred_left -= sub_predicate_size
         queries.append(query)
@@ -60,3 +62,27 @@ def terror_list(query):
 
 def flat_list(lst):
     return [item for sublist in lst for item in sublist]
+
+def filter_data(query, NF, data):
+    if NF == "DNF":
+        group_dfs = []
+        for group in query:
+            sub_group_df = (data[group[0]] == 1)
+            for pred in group[1:]:
+                sub_group_df = sub_group_df & (data[pred] == 1)
+            group_dfs.append(sub_group_df)
+        res = group_dfs[0]
+        for group in group_dfs[1:]:
+            res = res | group
+        return res
+    else:
+        group_dfs = []
+        for group in query:
+            sub_group_df = data[group[0]]==1
+            for pred in group[1:]:
+                sub_group_df = sub_group_df | (data[pred] == 1)
+            group_dfs.append(sub_group_df)
+        res = group_dfs[0]
+        for group in group_dfs[1:]:
+            res = res & group
+        return res

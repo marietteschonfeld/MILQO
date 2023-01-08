@@ -3,7 +3,7 @@ import numpy as np
 import keras
 from keras_preprocessing.sequence import pad_sequences
 import re, string
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+#from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
 # class to classify data using only a model name
 class inference_model:
@@ -39,7 +39,7 @@ class inference_model:
             self.task = "toxicity_analysis"
 
     # classify data
-    def classify(self, comments, filter):
+    def classify(self, comments, filter, regression=False):
         classification = {}
         # only classify data according to the filter
         filtered_comments = comments[filter]
@@ -48,8 +48,10 @@ class inference_model:
             transformed = vec.transform((filtered_comments))
             m = pickle.load(open("LR_{}.pickle".format(self.classes[0]), 'rb'))
             r = np.load("y_{}.npy".format(self.classes[0]))
-            res = np.rint(m.predict_proba(transformed.multiply(r)))
-            classification[self.classes[0]] = {}
+            res = m.predict_proba(transformed.multiply(r))
+            if not regression:
+                res = np.rint(res)
+            classification[self.classes[0]] = 0.5*np.ones((comments.shape[0], 1))
             count = 0
             for i in range(len(comments)):
                 if filter[i]:
@@ -58,18 +60,19 @@ class inference_model:
         else:
             size = self.name.split("_")[1]
             tokenizer = pickle.load(open("{}_LSTM_tokenizer.pickle".format(size), 'rb'))
-            token_comments = tokenizer.texts_to_sequences(list(comments))
-            lens = {'small': 300, 'medium': 250}
+            token_comments = tokenizer.texts_to_sequences(list(filtered_comments))
+            lens = {'small': 200, 'medium': 200, 'large': 200}
             x_comments = pad_sequences(token_comments, maxlen=lens[size])
             model = keras.models.load_model(self.name)
             prediction = model.predict(x_comments, verbose=0)
-            # if toxicity, round classification
+            if not regression:
+                prediction = np.rint(prediction)
             for index, pred in enumerate(self.classes):
-                classification[pred] = {}
+                classification[pred] = 0.5*np.ones((comments.shape[0], 1))
                 count = 0
                 for i in range(len(comments)):
                     if filter[i]:
-                        classification[self.classes[0]][i] = round(prediction[count, index])
+                        classification[pred][i] = prediction[count, index]
                         count += 1
         return classification
 

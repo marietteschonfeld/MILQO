@@ -1,3 +1,5 @@
+from math import ceil
+
 import gurobipy as grb
 from Query_tools import terror_list
 from functools import reduce
@@ -5,9 +7,8 @@ from Models.Model import Model
 
 
 class OrderOpt(Model):
-    def __init__(self, A, C, D, Sel, goal, bound, predicates, NF, new_equations):
-        Model.__init__(self, A, C, D, goal, bound, predicates, NF, new_equations)
-        self.Sel = Sel
+    def __init__(self, A, C, D, Sel, goal, bound, predicates, NF, new_equations, env):
+        Model.__init__(self, A, C, D, Sel, goal, bound, predicates, NF, new_equations, env)
         OrderOpt.extend_model(self)
 
     def extend_model(self):
@@ -15,6 +16,7 @@ class OrderOpt(Model):
         J = self.P
         Pg = len(self.predicates)
         models = list(self.C.keys())
+        new_C = self.extend_C()
 
         self.O = self.model.addVars(self.P, J, vtype=grb.GRB.BINARY, name='O')
         G = self.model.addVars(Pg, J, vtype=grb.GRB.BINARY, name='G')
@@ -22,7 +24,16 @@ class OrderOpt(Model):
         H = self.model.addVars(Pg, J, lb=0, ub=1,  vtype=grb.GRB.CONTINUOUS, name='H')
         W = self.model.addVars(Pg, J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='W')
         Sj = self.model.addVars(J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Sj')
-        Sg = self.model.addVars(Pg, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Sg')
+        Sg = []
+        # Selectives
+        if self.NF == 'DNF':
+            for g in range(Pg):
+                Sg.append(reduce((lambda x, y: x * y), [self.Sel[x] for x in self.predicates[g]]))
+        elif self.NF == 'CNF':
+            for g in range(Pg):
+                Sg.append(reduce((lambda x, y: x * y), [1 - self.Sel[x] for x in self.predicates[g]]))
+        else:
+            print("Not a valid NF")
 
         # Eq 7, 8
         self.model.addConstrs(self.O.sum('*', j) == 1 for j in range(J))
@@ -41,15 +52,7 @@ class OrderOpt(Model):
                          for g in range(Pg) for j in range(J) for p in terrorlist[g])
 
         # Eq 13
-        if self.new_equations['eq13']:
-            M1 = 1
-            Z = self.model.addVars(Pg, J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='Z')
-            self.model.addConstrs(Z[g, j] <= G[g, j]*M1 for g in range(Pg) for j in range(J))
-            self.model.addConstrs(Z[g, j] >= Sg[g] - M1 * (1-G[g, j]) for g in range(Pg) for j in range(J))
-            self.model.addConstrs(Z[g, j] <= Sg[g] for g in range(Pg) for j in range(J))
-            self.model.addConstrs(W[g, j] == 1 - Z[g, j] for g in range(Pg) for j in range(J))
-        else:
-            self.model.addConstrs(W[g, j] == 1 - G[g, j] * Sg[g] for g in range(Pg) for j in range(J))
+        self.model.addConstrs(W[g, j] == 1 - G[g, j] * Sg[g] for g in range(Pg) for j in range(J))
 
         # Eq 14
         self.model.addConstrs(H[g, 0] == 1 for g in range(Pg))
@@ -69,12 +72,18 @@ class OrderOpt(Model):
         else:
             for g in range(Pg):
                 for j in range(1, J):
-                    temp_H = [1]
-                    for i in range(0, j):
-                        new_Var = self.model.addVar(vtype=grb.GRB.CONTINUOUS)
-                        self.model.addConstr(new_Var == temp_H[-1]*(1 - grb.quicksum(self.O[p, i] - self.Sel[flat_predicates[p]]*self.O[p,i] for p in terrorlist[g])))
-                        temp_H.append(new_Var)
-                    self.model.addConstr(H[g, j] == temp_H[-1])
+                    self.model.addConstr(H[g, j] == H[g, j-1] *
+                                         (1-grb.quicksum(self.O[p, j-1]*(1-self.Sel[flat_predicates[p]])
+                                                         for p in terrorlist[g])))
+
+        # H_prime = self.model.addVars(Pg, J, lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name="H_prime")
+        # temp_sum = self.model.addVars(Pg, J, vtype=grb.GRB.CONTINUOUS)
+        # self.model.addConstrs(temp_sum[g, j] == 1-grb.quicksum(self.O[p, j] for p in terrorlist[g])
+        #                       for g in range(Pg) for j in range(J))
+        # self.model.addConstrs(H_prime[g, j] == grb.max_([H[g, j],
+        #                                                 temp_sum[g, j],
+        #                                                 G[g, j]])
+        #                       for g in range(Pg) for j in range(J))
 
         # Eq 15
         for j in range(J):
@@ -87,18 +96,9 @@ class OrderOpt(Model):
                 temp_selectives.append(temp_selective)
             self.model.addConstr(Sj[j] == temp_selectives[-1])
 
-        # Selectives
-        if self.NF == 'DNF':
-            self.model.addConstrs(Sg[g] == reduce((lambda x, y: x * y), [self.Sel[x] for x in self.predicates[g]])
-                                  for g in range(Pg))
-        elif self.NF == 'CNF':
-            self.model.addConstrs(Sg[g] == reduce((lambda x, y: x * y), [1 - self.Sel[x] for x in self.predicates[g]])
-                                  for g in range(Pg))
-        else:
-            print("Not a valid NF")
-
         # cost calculation
         R = self.model.addVars(self.M, J, lb=0, vtype=grb.GRB.CONTINUOUS, name='R')
+        T = self.model.addVars(self.M, J, lb=0, vtype=grb.GRB.CONTINUOUS, name='T')
 
         if self.new_equations['eq16']:
             M3 = 1
@@ -108,31 +108,64 @@ class OrderOpt(Model):
             self.model.addConstrs(Y[m, p, j] >= Sj[j] - M3*(2 - self.X[m, p] - self.O[p, j]) for m in range(self.M) for p in range(self.P) for j in range(J))
             self.model.addConstrs(Y[m, p, j] <= Sj[j] for m in range(self.M) for p in range(self.P) for j in range(J))
             self.model.addConstrs(R[m, j] == grb.quicksum(Y[m, p, j]*self.C[models[m]] for p in range(self.P)) for m in range(self.M) for j in range(J))
+
         else:
             temp_cost = self.model.addVars(self.M, J, vtype=grb.GRB.CONTINUOUS, name='temp_cost')
-            self.model.addConstrs(temp_cost[m, j] == grb.quicksum(self.X[m, p] * self.O[p, j] * self.C[models[m]] for p in range(self.P))
+            self.model.addConstrs(temp_cost[m, j] == grb.quicksum(self.X[m, p] * self.O[p, j] * new_C[flat_predicates[p]][models[m]] for p in range(self.P))
                                   for m in range(self.M)
                                   for j in range(J))
             self.model.addConstrs(R[m, j] == Sj[j] * temp_cost[m, j] for m in range(self.M) for j in range(J))
 
-        max_R = self.model.addVars(self.M, lb=0, ub=sum(self.C.values()), vtype=grb.GRB.CONTINUOUS, name='max_R')
+        if self.new_equations['memory']:
+            total_memory = self.model.getVarByName('total_memory')
+            B = self.model.addVars(self.M, vtype=grb.GRB.BINARY, name='B')
+            if self.new_equations['eq45']:
+                self.model.addConstrs(self.X[m, p] <= B[m] for m in range(self.M) for p in range(self.P))
+                self.model.addConstrs(self.X.sum(m, '*') >= B[m] for m in range(self.M))
+            else:
+                eps, l, u = 0.01, 0, self.P
+                self.model.addConstrs(self.X.sum(m, '*') <= 1 - eps + (u-1+eps)*B[m] for m in range(self.M))
+                self.model.addConstrs(self.X.sum(m, '*') >= B[m] + l*(1-B[m]) for m in range(self.M))
+            self.model.addConstr(total_memory == grb.quicksum(self.D[models[m]] * B[m] for m in range(self.M)))
+
+        else:
+            # B = self.model.addVars(self.M, vtype=grb.GRB.BINARY, name='B')
+            # eps, l, u = 0.01, 0, self.P
+            # self.model.addConstrs(self.X.sum(m, '*') <= 1 - eps + (u-1+eps)*B[m] for m in range(self.M))
+            # self.model.addConstrs(self.X.sum(m, '*') >= B[m] + l*(1-B[m]) for m in range(self.M))
+            total_memory = self.model.getVarByName('total_memory')
+            # self.model.addConstr(total_memory == grb.quicksum(self.D[models[m]] * B[m] for m in range(self.M)))
+
+        max_R = self.model.addVars(self.M, lb=0, ub=100000, vtype=grb.GRB.CONTINUOUS, name='max_R')
         self.model.addConstrs(max_R[m] == grb.max_(R[m, j] for j in range(J)) for m in range(self.M))
 
         total_cost = self.model.getVarByName('total_cost')
         self.model.addConstr(total_cost == max_R.sum('*'))
 
-    def get_query_plan(self):
-        assignment = {}
-        flat_predicates = [item for sublist in self.predicates for item in sublist]
-        models = list(self.C.keys())
-        for p in range(self.P):
-            for m in range(self.M):
-                if round(self.X[m, p].x) == 1:
-                    assignment[flat_predicates[p]] = models[m]
-        ordering = []
-        for j in range(self.P):
-            for p in range(self.P):
-                if round(self.O[p, j].x) == 1:
-                    ordering.append(flat_predicates[p])
-        return assignment, ordering
 
+    def get_query_plan(self):
+        if self.output_flag == 2:
+            assignment = {}
+            flat_predicates = [item for sublist in self.predicates for item in sublist]
+            models = list(self.C.keys())
+            for p in range(self.P):
+                for m in range(self.M):
+                    if round(self.X[m, p].x) == 1:
+                        assignment[flat_predicates[p]] = models[m]
+            ordering = []
+            for j in range(self.P):
+                for p in range(self.P):
+                    if round(self.O[p, j].x) == 1:
+                        ordering.append(flat_predicates[p])
+            return assignment, ordering
+        else:
+            return {}, []
+
+    def extend_C(self):
+        inf=100000
+        new_C = {}
+        for pred in self.A.keys():
+            new_C[pred] = {}
+            for mod in self.C.keys():
+                new_C[pred][mod] = ceil(self.A[pred][mod])*self.C[mod] + (1-ceil(self.A[pred][mod]))*inf
+        return new_C

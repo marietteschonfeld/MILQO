@@ -5,9 +5,11 @@ from numpy import exp
 def utopia_solution(model):
     model.compute_greedy_solution('accuracy', 'max')
     model.utopia_acc = model.opt_accuracy
-    model.compute_greedy_solution('cost', 'min')
+    model.model.setObjective(model.model.getVarByName('total_cost'), grb.GRB.MINIMIZE)
+    model.optimize()
     model.utopia_cost = model.opt_cost
-    model.compute_greedy_solution('memory', 'min')
+    model.model.setObjective(model.model.getVarByName('total_memory'), grb.GRB.MINIMIZE)
+    model.optimize()
     model.utopia_memory = model.opt_memory
 
 
@@ -24,16 +26,16 @@ def normalize_objectives(model):
     utopia_solution(model)
     worst_solution(model)
     acc_loss_norm = model.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='acc_loss_norm')
-    model.model.addConstr(acc_loss_norm == (model.model.getVarByName('accuracy_loss')-1+model.utopia_acc)/(model.worst_acc-1+model.utopia_acc))
+    model.model.addConstr(acc_loss_norm == (model.utopia_acc - model.model.getVarByName('total_accuracy') )/(model.utopia_acc-model.worst_acc))
     cost_norm = model.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='cost_norm')
     model.model.addConstr(cost_norm == (model.model.getVarByName('total_cost')-model.utopia_cost)/(model.worst_cost-model.utopia_cost))
     memory_norm = model.model.addVar(lb=0, ub=1, vtype=grb.GRB.CONTINUOUS, name='memory_norm')
     model.model.addConstr(memory_norm == (model.model.getVarByName('total_memory')-model.utopia_memory)/(model.worst_memory-model.utopia_memory))
     model.model.update()
+    return model.model
 
 
 def calculate_weights(objectives):
-    total = len(objectives)
     weights = {}
     count = 1
     total = 0
@@ -63,7 +65,7 @@ def flatten_objectives(objectives):
 
 
 def set_MOO_method(model, method, objectives, p=0, weights=None, goals=None, lbs=None, ubs=None):
-    normalize_objectives(model)
+    model.model = normalize_objectives(model)
     if weights == None:
         weights = calculate_weights(objectives)
     objectives = flatten_objectives(objectives)
@@ -87,6 +89,8 @@ def set_MOO_method(model, method, objectives, p=0, weights=None, goals=None, lbs
         goal_attainment_method(model, objectives, weights, goals)
     elif method == 'bounded_objective':
         bounded_objective(model, objectives, lbs, ubs)
+    elif method == "greedy_method":
+        greedy_MOO(model, weights)
     model.model.update()
     return model
 
@@ -108,13 +112,12 @@ def weighted_sum(model, objectives, weights):
 
 def lexicographic_method(model, ordering):
     ordering.reverse()
-    eps = 10**-6
     for objective in ordering:
         model.model.setObjective(model.model.getVarByName(objective), grb.GRB.MINIMIZE)
-        model.optimize()
+        model.optimize(timeout=30*60)
         if model.model.Status == 2:
-            bound = model.model.getVarByName(objective).x
-            model.model.addConstr(model.model.getVarByName(objective) <= bound+eps)
+            bound = model.model.getVarByName(objective).X
+            model.model.addConstr(model.model.getVarByName(objective) <= bound)
         else:
             break
 
@@ -132,6 +135,13 @@ def exponential_weighted_criterion(model, objectives, weights, p):
     for obj in range(len(objectives)):
         model.model.addGenConstrExpA(model.model.getVarByName(objectives[obj]), exp_var[obj], exp(p))
     model.model.setObjective(grb.quicksum((exp(p*weights[objectives[i]])-1)*exp_var[i] for i in range(len(objectives))), grb.GRB.MINIMIZE)
+    model.model.optimize()
+    if model.model.Status == 3:
+        model.model.params.FeasibilityTol = 1e-2
+        model.model.params.IntFeasTol = 1e-1
+        model.model.params.OptimalityTol = 1e-2
+        model.model.feasRelaxS(1, False, False, True)
+        model.model.optimize()
 
 
 def weighted_product(model, objectives, weights):
@@ -143,6 +153,13 @@ def weighted_product(model, objectives, weights):
             model.model.addConstr(temp_temp_product == temp_product[-1] * model.model.getVarByName(objectives[obj]))
             temp_product.append(temp_temp_product)
     model.model.setObjective(temp_product[-1], grb.GRB.MINIMIZE)
+    model.model.optimize()
+    if model.model.Status == 3:
+        model.model.params.FeasibilityTol = 1e-2
+        model.model.params.IntFeasTol = 1e-1
+        model.model.params.OptimalityTol = 1e-2
+        model.model.feasRelaxS(1, False, False, True)
+        model.model.optimize()
 
 
 def goal_method(model, objectives, goals):
@@ -168,5 +185,38 @@ def goal_attainment_method(model, objectives, weights, goals):
 
 def bounded_objective(model, objectives, lbs, ubs):
     model.model.setObjective(model.model.getVarByName(objectives[-1]), grb.GRB.MINIMIZE)
-    model.model.addConstrs(model.model.getVarByName(obj) <= ubs[obj] for obj in objectives)
-    model.model.addConstrs(model.model.getVarByName(obj) >= lbs[obj] for obj in objectives)
+    model.model.addConstrs(model.model.getVarByName(obj) <= ubs[obj] for obj in objectives[0:-1])
+    model.model.addConstrs(model.model.getVarByName(obj) >= lbs[obj] for obj in objectives[0:-1])
+
+def greedy_MOO(model, weights):
+    flat_predicates = [item for sublist in model.predicates for item in sublist]
+    max_C = max(model.C.values())
+    max_D = max(model.D.values())
+    models = list(model.C.keys())
+    for p in range(len(flat_predicates)):
+        min_val = 100000
+        min_loc = 0
+        min_A = min(model.A[flat_predicates[p]].values())
+        for m in range(len(models)):
+            val = weights['memory_norm'] * model.D[models[m]]/max_D +\
+                  weights['acc_loss_norm']*(1-model.A[flat_predicates[p]][models[m]])/(1-min_A) + \
+                  weights['cost_norm']*model.C[models[m]]/max_C
+            if val < min_val and model.A[flat_predicates[p]][models[m]] > 0:
+                min_val = val
+                min_loc = m
+        eps = 0.1
+        model.model.getVarByName("B[{}]".format(min_loc)).lb = 1-eps
+        for m in range(len(models)):
+            if m == min_loc:
+                model.X[m,p].lb=1-eps
+                model.X[m,p].Start = 1
+            else:
+                #model.X[m, p].ub = 0+eps
+                model.X[m,p].Start = 0
+        model.model.optimize()
+        if model.model.Status == 3:
+            model.model.params.FeasibilityTol = 1e-2
+            model.model.params.IntFeasTol = 1e-1
+            model.model.params.OptimalityTol = 1e-2
+            model.model.feasRelaxS(1, False, False, True)
+            model.model.optimize()
